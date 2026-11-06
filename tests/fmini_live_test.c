@@ -79,6 +79,21 @@ int main(int argc, char **argv)
     fframes(300);
     if (lv_cur != lv_row) FAIL("the slot the list is on was not loaded (cur %u row %u)", lv_cur, lv_row);
     ui.force = 1; fa_draw();                           /* the list draws (no crash, the panel is not the pages') */
+    {   FILE *f; char p[256]; uint32_t k;               /* the list, as a picture: OUT/live.ppm */
+        lv_ta[1] = -3; lv_tb[1] = 2; lv_b[1] = 20; lv_row = 1; ui.force = 1; fa_draw();
+        snprintf(p, sizeof p, "%s/live.ppm", dir);
+        f = fopen(p, "wb");
+        if (f) {
+            fprintf(f, "P6\n240 240\n255\n");
+            for (k = 0; k < 240u * 240u; k++) {
+                uint16_t c = swap16(host_screen[k]);
+                uint8_t px[3] = {(uint8_t)((c >> 11) * 255u / 31u), (uint8_t)(((c >> 5) & 63u) * 255u / 63u), (uint8_t)((c & 31u) * 255u / 31u)};
+                fwrite(px, 1, 3, f);
+            }
+            fclose(f);
+        }
+        lv_ta[1] = lv_tb[1] = 0; lv_b[1] = LV_NOB; lv_row = 0;
+    }
 
     /* the list: SELECT moves the row, K1 the channel, K2 the sound, K3 the layer; the row loads after resting */
     lv_ch[0] = 0; lv_a[0] = 5;  lv_b[0] = LV_NOB;       /* slot 1: channel 1, preset 5 */
@@ -103,6 +118,29 @@ int main(int argc, char **argv)
     if (lv_cur != 1 || !lv_layer) FAIL("slot 2 not loaded by resting on it (cur %u layer %u)", lv_cur, lv_layer);
     if (trk[0].p[P_E7] != 10 || trk[1].p[P_E7] != 20) FAIL("sounds: %d / %d", trk[0].p[P_E7], trk[1].p[P_E7]);
     if (trk[1].p[P_MUTE]) FAIL("the layer track is muted");
+
+    /* VOLUME: K4 is A's, ALGORITHM B's: 1 dB a detent on the preset's own level (0.5 dB a step), heard now, no reload */
+    {   int16_t a0 = trk[0].p[P_LEVEL], b0 = trk[1].p[P_LEVEL];
+        uint8_t cur = lv_cur;
+        if (lv_ta[1] || lv_tb[1] || lv_base[0] != a0 || lv_base[1] != b0) FAIL("volumes at the start: %d %d base %d %d", lv_ta[1], lv_tb[1], lv_base[0], lv_base[1]);
+        fturn(EN_K4, -3);
+        if (lv_ta[1] != -3 || trk[0].p[P_LEVEL] != a0 - 6) FAIL("K4: volume %d level %d (was %d)", lv_ta[1], trk[0].p[P_LEVEL], a0);
+        if (trk[1].p[P_LEVEL] != b0) FAIL("K4 moved B");
+        host_enc[panel.enc[EN_ALGO]] += 2 * panel.dir[EN_ALGO]; fframe();
+        if (lv_tb[1] != 2 || trk[1].p[P_LEVEL] != lv_level(b0, 2)) FAIL("ALGORITHM: volume %d level %d", lv_tb[1], trk[1].p[P_LEVEL]);
+        if (lv_cur != cur) FAIL("a volume reloaded the slot");
+        fturn(EN_K4, -100);
+        if (lv_ta[1] != LV_TMIN) FAIL("A volume floor %d", lv_ta[1]);
+        fturn(EN_K4, 100);
+        if (lv_ta[1] != LV_TMAX) FAIL("A volume ceiling %d", lv_ta[1]);
+        lv_ta[1] = -3; lv_tb[1] = 2;
+        trk[0].p[P_LEVEL] = lv_level(lv_base[0], -3);
+        lv_row = 0;                                    /* slot 1 has no layer: ALGORITHM does nothing there */
+        host_enc[panel.enc[EN_ALGO]] += 1 * panel.dir[EN_ALGO]; fframe();
+        if (lv_tb[0] != 0) FAIL("ALGORITHM changed the volume of a missing layer");
+        lv_row = 1;
+        if (lv_level(0, 5) != 0 || lv_level(120, 7) != 127 || lv_level(3, -24) != 1) FAIL("lv_level");
+    }
 
     /* a note on the loaded slot's channel plays both sounds, a release lets both go */
     note(1, 60, 100);
@@ -133,16 +171,21 @@ int main(int argc, char **argv)
 
     /* the slots survive the settings: round trip, then a bad record reads as the defaults */
     lv_cfg_save();
+    lv_ta[15] = LV_TMIN; lv_tb[15] = LV_TMAX; lv_ch[15] = 15; lv_a[15] = 199; lv_b[15] = 198;   /* the last slot: the last bits of the 62 bytes */
+    lv_cfg_save();
     {   uint8_t c[LV_N], a[LV_N], b[LV_N];
-        memcpy(c, lv_ch, LV_N); memcpy(a, lv_a, LV_N); memcpy(b, lv_b, LV_N);
-        memset(lv_ch, 0, LV_N); memset(lv_a, 0, LV_N); memset(lv_b, 0, LV_N);
+        int8_t ta[LV_N], tb[LV_N];
+        memcpy(c, lv_ch, LV_N); memcpy(a, lv_a, LV_N); memcpy(b, lv_b, LV_N); memcpy(ta, lv_ta, LV_N); memcpy(tb, lv_tb, LV_N);
+        memset(lv_ch, 0, LV_N); memset(lv_a, 0, LV_N); memset(lv_b, 0, LV_N); memset(lv_ta, 0, LV_N); memset(lv_tb, 0, LV_N);
         lv_cfg_load();
         if (memcmp(c, lv_ch, LV_N) || memcmp(a, lv_a, LV_N) || memcmp(b, lv_b, LV_N)) FAIL("the slots did not survive the settings");
+        if (memcmp(ta, lv_ta, LV_N) || memcmp(tb, lv_tb, LV_N)) FAIL("the volumes did not survive the settings (%d %d)", lv_ta[1], lv_tb[1]);
+        if (lv_ta[1] != -3 || lv_tb[1] != 2 || lv_ta[15] != LV_TMIN || lv_tb[15] != LV_TMAX) FAIL("volumes: %d %d %d %d", lv_ta[1], lv_tb[1], lv_ta[15], lv_tb[15]);
         if (lv_map[1] != 2) FAIL("map after load");
         *lv_cfg_byte(5) ^= 1;                          /* any change of a byte: the checksum no longer holds */
         lv_cfg_load();
         for (i = 0; i < LV_N; i++)
-            if (lv_ch[i] != i || lv_a[i] != i || lv_b[i] != LV_NOB) FAIL("a bad record did not read as the defaults (slot %u)", i);
+            if (lv_ch[i] != i || lv_a[i] != i || lv_b[i] != LV_NOB || lv_ta[i] || lv_tb[i]) FAIL("a bad record did not read as the defaults (slot %u)", i);
     }
 
     /* HOME held again: out of LIVE, track 2 muted, the pages are back */
