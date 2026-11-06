@@ -1219,22 +1219,22 @@ static int fm_midi_ok(uint32_t source, uint32_t ch)
 }
 /* LIVE (fmini_live.c): what a channel message does while the mode is on. 1: it goes on to midi_event (the channel is the loaded
  * slot's); 0: dropped (a channel no slot is set to, another slot's channel while it is not the loaded one, Program Change:
- * the slot is the sound); -1: a note-on on another slot's channel: the main loop loads that slot first (fl_req), and this
+ * the slot is the sound); -1: a note-on on another slot's channel: the main loop loads that slot first (lv_req), and this
  * message waits at the head of the queue, so the order of the messages is kept */
-static int fl_route(uint32_t st, uint32_t ch, uint32_t d2)
+static int lv_route(uint32_t st, uint32_t ch, uint32_t d2)
 {
-    uint32_t m = fl_map[ch & 15u];
+    uint32_t m = lv_map[ch & 15u];
     if (!m || st == 0xC0u)
         return 0;
-    if (m - 1u == fl_cur)
+    if (m - 1u == lv_cur)
         return 1;
     if (st == 0x90u && d2) {
-        fl_req = (uint8_t)m;
+        lv_req = (uint8_t)m;
         return -1;
     }
     return 0;
 }
-#define MI_WAIT (fl_req != 0u)
+#define MI_WAIT (lv_req != 0u)
 #else
 #define MI_WAIT 0
 #endif
@@ -1432,8 +1432,8 @@ static void events_block(uint32_t n)
         } else
 #if FELUCCA_FMINI_ONLY
         if (fm_midi_ok(source, ch)) {
-            int r = fm_live ? fl_route(st, ch, d2) : 1;
-            if (r < 0) {                              /* LIVE: this note waits for its slot (fl_req); the loop stops */
+            int r = fm_live ? lv_route(st, ch, d2) : 1;
+            if (r < 0) {                              /* LIVE: this note waits for its slot (lv_req); the loop stops */
                 mi_r--;
                 continue;
             }

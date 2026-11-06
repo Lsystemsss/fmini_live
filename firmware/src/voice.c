@@ -410,7 +410,7 @@ static void trk_note_on(track_t *t, uint32_t note, uint32_t vel)
     uint32_t any = 0, i, mode = trk_vmode(t);
     int32_t xn;
 #if FELUCCA_FMINI_ONLY
-    if (fl_layer && t == &trk[0])                       /* LIVE's layer: track 2 plays what track 1 plays (keys, MIDI, ARP, SEQ) */
+    if (lv_layer && t == &trk[0])                       /* LIVE's layer: track 2 plays what track 1 plays (keys, MIDI, ARP, SEQ) */
         trk_note_on(&trk[1], note, vel);
 #endif
     xn = trk_xnote(note);
@@ -465,7 +465,7 @@ static void trk_note_off(track_t *t, uint32_t note)
 {
     int32_t xn;
 #if FELUCCA_FMINI_ONLY
-    if (fl_layer && t == &trk[0])                       /* LIVE's layer (trk_note_on) */
+    if (lv_layer && t == &trk[0])                       /* LIVE's layer (trk_note_on) */
         trk_note_off(&trk[1], note);
 #endif
     xn = trk_xnote(note);
@@ -507,7 +507,7 @@ static void trk_all_off(track_t *t)
 {
     uint32_t i;
 #if FELUCCA_FMINI_ONLY
-    if (fl_layer && t == &trk[0])                       /* LIVE's layer (trk_note_on) */
+    if (lv_layer && t == &trk[0])                       /* LIVE's layer (trk_note_on) */
         trk_all_off(&trk[1]);
 #endif
     for (i = 0; i < NVOICE; i++) {

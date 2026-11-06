@@ -1628,7 +1628,7 @@ static void fa_scene(void)
         cv_rect(232, (int32_t)i + 3, 8, 1, FA_RGB(0x42, 0x20, 0x0D));
     }
     if (fm_live) {                                           /* LIVE: its own list on the same panel (fmini_live.c) */
-        fl_scene();
+        lv_scene();
         return;
     }
     cv_rect(8, 0, 224, 22, FA_RGB(0x0E, 0x0D, 0x0C));        /* the header: the name and the seven tabs */
@@ -1756,9 +1756,9 @@ static uint32_t fa_signature(void)
     for (i = 0; i < NSTEP; i++)
         h = (h ^ (uint32_t)(t->step[i].n ? t->step[i].note[0] : 0u)) * 16777619u;
     h = (h ^ fa_batt()) * 16777619u;                         /* the battery icon */
-    h = (h ^ fm_live ^ (uint32_t)fl_row << 1 ^ (uint32_t)fl_cur << 8) * 16777619u;   /* LIVE: the slot the list is on, the loaded one, the slots */
-    for (i = 0; i < FL_N; i++)
-        h = (h ^ fl_ch[i] ^ (uint32_t)fl_a[i] << 8 ^ (uint32_t)fl_b[i] << 16) * 16777619u;
+    h = (h ^ fm_live ^ (uint32_t)lv_row << 1 ^ (uint32_t)lv_cur << 8) * 16777619u;   /* LIVE: the slot the list is on, the loaded one, the slots */
+    for (i = 0; i < LV_N; i++)
+        h = (h ^ lv_ch[i] ^ (uint32_t)lv_a[i] << 8 ^ (uint32_t)lv_b[i] << 16) * 16777619u;
     return (h ^ t->preset) * 16777619u;
 }
 
@@ -2026,8 +2026,8 @@ static void fa_buttons(uint32_t pressed)
 {
     static const uint8_t PG_BTN[5] = {B_LFO, B_EDIT, B_SCL, B_FX, B_ENV};   /* (GLO: global, ARP, SEQ, REC, PLAY: their own) */
     uint32_t i;
-    if (fl_home_hold(pressed)) {                          /* HOME held 0.5 s: LIVE (its press did HOME's tap first; LIVE's own input closes it) */
-        fl_enter();
+    if (lv_home_hold(pressed)) {                          /* HOME held 0.5 s: LIVE (its press did HOME's tap first; LIVE's own input closes it) */
+        lv_enter();
         return;
     }
     if (fa_gl == 6u && pressed) {                         /* SUPPORT: any key goes back to GLOBAL */
@@ -2330,10 +2330,10 @@ static void fa_input(void)
     fmg_glide_sync();                                       /* the patch's GLIDE switch and time -> the track's */
     fa_clk_apply();                                         /* MIDI CLOCK: the setting is the global CLK */
     fmg_force_page = (int8_t)fa_page;
-    fl_poll();                                              /* LIVE: a slot a note asked for, the slot the list rests on, the settings */
+    lv_poll();                                              /* LIVE: a slot a note asked for, the slot the list rests on, the settings */
     if (fm_live) {                                          /* LIVE: its list and its keys; nothing else of the panel */
         fa_cc_poll();
-        fl_input(pressed);
+        lv_input(pressed);
         return;
     }
     if (!fa_ar && !fa_sq && !fa_sc)
@@ -2619,7 +2619,7 @@ static void fa_init(void)
     }
     song.sel = 0;
     fa_cfg_load();
-    fl_cfg_load();                                           /* LIVE's 16 slots (a power-on never starts in LIVE) */
+    lv_cfg_load();                                           /* LIVE's 16 slots (a power-on never starts in LIVE) */
     ui_idle |= 1u;                                          /* the idle light show (ui_input.c idle_leds): on, after a minute with no input */
     fa_primed = 0;
     fa_last_sl = -2;
