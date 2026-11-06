@@ -1,0 +1,53 @@
+# SPDX-License-Identifier: GPL-3.0-only
+# FMini-1: builds the firmware and keeps the .fwsc package (and the raw .bin) as a downloadable artifact, for testing a branch
+# without publishing the installer page (installer.yml does that, from main only).
+# Runs on every push to live-mode, and by hand (Actions > Build .fwsc > Run workflow, any branch).
+name: Build .fwsc
+
+on:
+  push:
+    branches: [live-mode]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Python packages
+        run: pip install Pillow fonttools
+
+      - name: JieLi toolchain and AC79 SDK
+        run: |
+          tools/get_toolchain.sh
+          git clone --depth 1 --branch AC79NN_SDK_V1.2.1_2023-12-13 \
+              https://gitee.com/Jieli-Tech/fw-AC79_AIoT_SDK.git "$HOME/fw-AC79_AIoT_SDK"
+
+      - name: Build the firmware
+        run: ./build.sh
+
+      - name: Name the package
+        run: |
+          VERSION=$(sed -n 's/^#define FMINI_VERSION "v\(.*\)"/\1/p' firmware/src/core.h)
+          echo "VERSION=$VERSION" >> "$GITHUB_ENV"
+          ls -l build/*.fwsc build/*.bin
+          echo "FMini-1 v$VERSION ($GITHUB_REF_NAME @ ${GITHUB_SHA::7})" >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: fmini-1-${{ env.VERSION }}-${{ github.ref_name }}
+          path: |
+            build/fmini-1-fm1-*.fwsc
+            build/fmini-1-fm1-*.bin
+          if-no-files-found: error
+          retention-days: 30
