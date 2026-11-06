@@ -420,6 +420,16 @@ typedef struct {
 static track_t trk[NTRK];        /* the instrument: four parts */
 static song_t song;
 #define TSEL (&trk[song.sel])    /* the selected track */
+#if FELUCCA_FMINI_ONLY
+/* LIVE mode (fmini_live.c): 16 slots, each a MIDI channel and one sound, or two (a layer). While it is on, the channel a note
+ * comes on picks the slot: its sound is loaded into track 1 (and its layer into track 2, which plays what track 1 plays).
+ * The audio ISR only reads these and asks; a sound load is the main loop's work (flash, undo), never the ISR's */
+static volatile uint8_t fm_live;         /* 1: LIVE is on: every channel is heard, the channel picks the slot */
+static volatile uint8_t fl_cur = 0xFF;   /* the slot loaded now, 0xFF none (a slot edited, or LIVE just opened) */
+static volatile uint8_t fl_req;          /* a note came on the channel of slot fl_req - 1, which is not loaded: the main loop loads it */
+static volatile uint8_t fl_layer;        /* the loaded slot has a second sound: trk_note_on / off pass track 1's notes to track 2 */
+static volatile uint8_t fl_map[16];      /* per MIDI channel 0..15: the first slot set to it, + 1; 0 none (that channel is silent) */
+#endif
 /* MIDI IN TRACK: track i's channel 0..15, MCH_OMNI or MCH_OFF (song.mch), and set */
 static inline uint32_t mch_get(uint32_t i)
 {

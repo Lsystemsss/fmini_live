@@ -51,6 +51,8 @@ static void midi_expression(track_t *t, const midi_channel_t *c)
         static const uint8_t UP[4] = {2, 12, 2, 2}, DN[4] = {2, 12, 12, 24};
         int32_t r = (int32_t)(fm_wheel < 0 ? DN : UP)[fm_bend_mode & 3u] * 256;
         midi_bend_target[trk_index(t)] = (int32_t)fm_wheel * r / (fm_wheel < 0 ? 8192 : 8191);
+        if (fl_layer && t == &trk[0])                   /* LIVE's layer (voice.c trk_note_on): track 2 bends with track 1 */
+            midi_bend_target[1] = midi_bend_target[0];
         (void)range;
         return;
     }

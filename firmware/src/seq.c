@@ -1215,8 +1215,28 @@ static int fm_midi_ok(uint32_t source, uint32_t ch)
 {
     if (source == 3u && !fm_bt)
         return 0;
-    return (fm_midi_src == 3u || fm_midi_src + 1u == source) && (!fm_midi_ch || fm_midi_ch - 1u == ch);
+    return (fm_midi_src == 3u || fm_midi_src + 1u == source) && (fm_live || !fm_midi_ch || fm_midi_ch - 1u == ch);   /* (LIVE: every channel) */
 }
+/* LIVE (fmini_live.c): what a channel message does while the mode is on. 1: it goes on to midi_event (the channel is the loaded
+ * slot's); 0: dropped (a channel no slot is set to, another slot's channel while it is not the loaded one, Program Change:
+ * the slot is the sound); -1: a note-on on another slot's channel: the main loop loads that slot first (fl_req), and this
+ * message waits at the head of the queue, so the order of the messages is kept */
+static int fl_route(uint32_t st, uint32_t ch, uint32_t d2)
+{
+    uint32_t m = fl_map[ch & 15u];
+    if (!m || st == 0xC0u)
+        return 0;
+    if (m - 1u == fl_cur)
+        return 1;
+    if (st == 0x90u && d2) {
+        fl_req = (uint8_t)m;
+        return -1;
+    }
+    return 0;
+}
+#define MI_WAIT (fl_req != 0u)
+#else
+#define MI_WAIT 0
 #endif
 static int32_t midi_slot(uint32_t ch)      /* the track channel ch plays, -1 none (and with SEL) */
 {
@@ -1396,7 +1416,7 @@ static void events_block(uint32_t n)
         t->aholdp = t->p[P_AHOLD];
     }
     keyboard_block();
-    while (mi_r != mi_w) {                            /* USB-MIDI (and TRS) in */
+    while (mi_r != mi_w && !MI_WAIT) {                /* USB-MIDI (and TRS) in (LIVE: not while a slot waits to be loaded) */
         uint32_t at = mi_r % MQ, pkt = midi_in_q[at], status = (pkt >> 8) & 0xFFu;
         uint32_t st = status & 0xF0u, ch = status & 0x0Fu;
         uint32_t d1 = (pkt >> 16) & 0x7Fu, d2 = (pkt >> 24) & 0x7Fu;
@@ -1411,9 +1431,18 @@ static void events_block(uint32_t n)
             }
         } else
 #if FELUCCA_FMINI_ONLY
-        if (fm_midi_ok(source, ch))
-#endif
+        if (fm_midi_ok(source, ch)) {
+            int r = fm_live ? fl_route(st, ch, d2) : 1;
+            if (r < 0) {                              /* LIVE: this note waits for its slot (fl_req); the loop stops */
+                mi_r--;
+                continue;
+            }
+            if (r)
+                midi_event(st, ch, d1, d2);
+        }
+#else
             midi_event(st, ch, d1, d2);
+#endif
     }
     if (clock_mode) {
         seq_n = 0;
