@@ -1,0 +1,894 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>FMini-1 Editor</title>
+<!-- SPDX-License-Identifier: GPL-3.0-only
+     FMini-1 patch editor: one self-contained page, Web MIDI + SysEx (Chrome / Edge / Android).
+     Protocol: web/EDITOR_PROTOCOL.md (cmds 2 GET, 3 SET, 4 DUMP, 5 DESC, 8 PRESET, 10 NAMES, 27 TRACK, 82/83 FMINI_GET/PUT). -->
+<style>
+  :root {
+    --bg: #0d0c10; --surface: #15131a; --surface2: #1c1922; --line: #2a2631; --fg: #f4f0ea; --dim: #a29cab; --mute: #6f6a78;
+    --or: #ff7a1a; --or2: #ff9a4d; --ok: #7bd88f; --bad: #ff7a6a; --wood: #3a2616;
+    --sans: "Inter", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
+  }
+  * { box-sizing: border-box; }
+  html { background: var(--bg); }
+  body { margin: 0; color: var(--fg); font: 15px/1.5 var(--sans); background: var(--bg); -webkit-font-smoothing: antialiased; min-height: 100vh; }
+  a { color: var(--or2); }
+  button, select { font: inherit; color: inherit; }
+  .wrap { max-width: 980px; margin: 0 auto; padding: 0 16px; }
+
+  header.top { background: linear-gradient(#4a301b, #2e1d10); border-bottom: 3px solid #17100a; }
+  header.top .wrap { display: flex; align-items: center; gap: 14px; flex-wrap: wrap; padding-top: 12px; padding-bottom: 12px; }
+  h1 { margin: 0; font-size: 19px; letter-spacing: .04em; font-weight: 700; }
+  h1 small { color: var(--or2); font-weight: 600; margin-left: 6px; letter-spacing: 0; font-size: 13px; }
+  .grow { flex: 1; }
+  .btn { background: var(--surface2); color: var(--fg, #f4f0ea); border: 1px solid var(--line); border-radius: 8px; padding: 7px 14px; cursor: pointer; }
+  .btn:hover { border-color: var(--mute); }
+  .btn.pri { background: var(--or); color: #1a0e05; border-color: var(--or); font-weight: 700; }
+  .btn[disabled] { opacity: .45; cursor: default; }
+  .dot { display: inline-block; width: 9px; height: 9px; border-radius: 50%; background: var(--mute); margin-right: 7px; }
+  .dot.on { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #status { font-size: 13.5px; color: var(--dim); }
+
+  .notice { margin: 16px 0 0; padding: 12px 14px; border: 1px solid var(--line); border-left: 3px solid var(--or); border-radius: 8px; background: var(--surface); color: var(--dim); }
+  .notice.bad { border-left-color: var(--bad); }
+  .notice b { color: var(--fg); }
+
+  .bar { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; margin: 18px 0 10px; }
+  .bar select { background: var(--surface2); border: 1px solid var(--line); border-radius: 8px; padding: 7px 10px; min-width: 0; max-width: 100%; }
+  #preset { flex: 1; min-width: 160px; }
+  .sq { width: 38px; padding: 7px 0; text-align: center; }
+
+  nav.tabs { display: flex; gap: 4px; overflow-x: auto; border-bottom: 1px solid var(--line); scrollbar-width: none; }
+  nav.tabs button { background: none; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; cursor: pointer; color: var(--dim); font-weight: 600; letter-spacing: .05em; font-size: 13px; white-space: nowrap; }
+  nav.tabs button[aria-selected="true"] { color: var(--or2); border-bottom-color: var(--or); }
+
+  main.panel { margin: 18px 0 40px; padding: 22px 18px 26px; background: linear-gradient(#1c1922, #15131a); border: 1px solid var(--line); border-radius: 14px; min-height: 280px; }
+  .grp { margin-bottom: 22px; }
+  .grp:last-child { margin-bottom: 0; }
+  .grp h2 { margin: 0 0 12px; font-size: 12px; letter-spacing: .14em; color: var(--mute); font-weight: 700; text-transform: uppercase; }
+  .row { display: flex; flex-wrap: wrap; gap: 18px 26px; align-items: flex-start; }
+
+  .knob { width: 84px; text-align: center; user-select: none; -webkit-user-select: none; touch-action: none; outline: none; cursor: ns-resize; }
+  .knob svg { width: 70px; height: 70px; display: block; margin: 0 auto; }
+  .knob .ring { fill: none; stroke: var(--line); stroke-width: 4; stroke-linecap: round; }
+  .knob .arc { fill: none; stroke: var(--or); stroke-width: 4; stroke-linecap: round; }
+  .knob .cap { fill: url(#cap); stroke: #000; stroke-width: 1; }
+  .knob .tick { stroke: #1a1a1a; stroke-width: 3; stroke-linecap: round; }
+  .knob:focus-visible svg { outline: 2px solid var(--or2); outline-offset: 2px; border-radius: 50%; }
+  .knob .lb { font-size: 11.5px; letter-spacing: .08em; color: var(--dim); margin-top: 2px; font-weight: 600; }
+  .knob .val { font: 600 13px var(--mono); color: var(--or2); }
+
+  .sw { display: inline-flex; flex-direction: column; align-items: center; gap: 6px; background: none; border: 0; cursor: pointer; padding: 0; width: 84px; }
+  .sw i { width: 46px; height: 22px; border-radius: 11px; background: #0f0e0d; border: 1px solid var(--line); position: relative; transition: background .12s; }
+  .sw i::after { content: ""; position: absolute; top: 2px; left: 2px; width: 16px; height: 16px; border-radius: 50%; background: #8d8d8b; transition: left .12s, background .12s; }
+  .sw[aria-pressed="true"] i { background: var(--or); border-color: var(--or); }
+  .sw.blue[aria-pressed="true"] i { background: #2f7fe0; border-color: #2f7fe0; }
+  .sw.red[aria-pressed="true"] i { background: #d6382b; border-color: #d6382b; }
+  .sw[aria-pressed="true"] i::after { left: 26px; background: #fff; }
+  .sw span { font-size: 11.5px; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+  .sw:focus-visible i { outline: 2px solid var(--or2); outline-offset: 2px; }
+
+  .seg { display: flex; flex-direction: column; gap: 7px; min-width: 150px; }
+  .seg .t { font-size: 11.5px; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+  .seg .opts { display: flex; flex-wrap: wrap; gap: 4px; }
+  .seg button { background: #0f0e0d; border: 1px solid var(--line); border-radius: 6px; padding: 5px 9px; cursor: pointer; font: 600 12px var(--mono); color: var(--dim); }
+  .seg button[aria-pressed="true"] { background: var(--or); border-color: var(--or); color: #1a0e05; }
+  .sel { display: flex; flex-direction: column; gap: 7px; width: 120px; }
+  .sel .t { font-size: 11.5px; letter-spacing: .08em; color: var(--dim); font-weight: 600; }
+  #resetsel, #resetsel option { color: #000; background: #fff; }
+  .sel select { background: #0f0e0d; border: 1px solid var(--line); border-radius: 6px; padding: 6px 8px; width: 100%; }
+
+  .tools { display: flex; align-items: center; gap: 8px 12px; flex-wrap: wrap; margin: 0 0 12px; color: var(--dim); font-size: 13px; }
+  .tools label { display: inline-flex; align-items: center; gap: 8px; }
+  .tools input[type=range] { width: 110px; accent-color: var(--or); }
+  #ab { min-width: 74px; font-weight: 700; }
+  #ab b { color: var(--or2); }
+  .slots { display: grid; grid-template-columns: repeat(auto-fill, minmax(215px, 1fr)); gap: 10px; }
+  .slot { background: #0f0e0d; border: 1px solid var(--line); border-radius: 10px; padding: 10px 12px; min-width: 0; }
+  .slot .sn { font: 700 11.5px var(--mono); color: var(--or2); letter-spacing: .06em; }
+  .slot .nm { font: 600 14px var(--mono); margin-top: 2px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-height: 21px; }
+  .slot.empty .nm, .slot.other .nm { color: var(--mute); font-weight: 400; }
+  .slot .act { display: flex; gap: 4px; flex-wrap: wrap; margin-top: 8px; }
+  .mini { background: var(--surface2); border: 1px solid var(--line); border-radius: 6px; padding: 3px 9px; cursor: pointer; font-size: 12px; }
+  .mini:hover { border-color: var(--mute); }
+  .mini.warn:hover { border-color: var(--bad); color: var(--bad); }
+  .libname { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+  #busy { position: fixed; left: 50%; bottom: 22px; transform: translateX(-50%); background: var(--or); color: #1a0e05; font-weight: 700; padding: 10px 18px; border-radius: 10px; box-shadow: 0 6px 28px #000a; z-index: 9; max-width: 92vw; text-align: center; }
+  #busy[hidden] { display: none; }
+  .busy .bar, .busy nav.tabs, .busy main.panel, .busy .tools { pointer-events: none; opacity: .5; }
+  footer { color: var(--mute); font-size: 12.5px; padding: 0 0 30px; }
+  footer .wrap > * { margin: 4px 0; }
+  .off main.panel, .off .bar, .off nav.tabs { opacity: .35; pointer-events: none; }
+  @media (max-width: 560px) { .knob, .sw { width: 72px; } .row { gap: 16px 14px; } main.panel { padding: 18px 12px; } }
+</style>
+</head>
+<body class="off">
+<svg width="0" height="0" style="position:absolute" aria-hidden="true"><defs>
+  <radialGradient id="cap" cx=".35" cy=".3" r=".9"><stop offset="0" stop-color="#f4f4f2"/><stop offset=".55" stop-color="#9a9a98"/><stop offset="1" stop-color="#55554f"/></radialGradient>
+</defs></svg>
+
+<header class="top"><div class="wrap">
+  <h1>FMini-1 <small data-t="editor">Editor</small></h1>
+  <span class="grow"></span>
+  <span id="status"><span class="dot" id="dot"></span><span id="stxt"></span></span>
+  <select id="port" class="btn" hidden aria-label="MIDI"></select>
+  <button class="btn pri" id="connect"></button>
+  <button class="btn" id="usbdiag" title="USB">USB</button>
+</div></header>
+
+<div class="wrap" id="body">
+  <div id="msg"></div>
+  <div class="bar">
+    <button class="btn sq" id="prev" aria-label="-">◀</button>
+    <select id="preset" aria-label="Patch"></select>
+    <button class="btn sq" id="next" aria-label="+">▶</button>
+    <button class="btn" id="save" data-t="save"></button>
+    <button class="btn" id="load" data-t="open"></button>
+    <input type="file" id="file" accept=".bkp,.json,application/json" hidden>
+  </div>
+  <div class="tools">
+    <button class="btn" id="rnd"></button>
+    <label><span data-t="amt"></span><input type="range" id="amt" min="5" max="100" value="35" aria-label="amount"><b id="amtv">35%</b></label>
+    <span class="grow"></span>
+    <button class="btn" id="ab" title="A/B"></button>
+    <button class="btn" id="abcopy"></button>
+  </div>
+  <nav class="tabs" id="tabs" role="tablist"></nav>
+  <main class="panel" id="panel"></main>
+</div>
+
+<div id="busy" hidden role="status"></div>
+
+<footer><div class="wrap">
+  <div data-t="foot1"></div>
+  <div><a href="https://ruppert.github.io/fmini-1/" data-t="home"></a> · <a href="https://github.com/ruppert/fmini-1" rel="noopener">GitHub</a> · <a href="https://ko-fi.com/ruppert" target="_blank" rel="noopener" data-t="donate"></a></div>
+</div></footer>
+
+<script>
+"use strict";
+/* ------------------------------------------------------------------ texts --- */
+const TX = {
+  pt: { editor: "Editor", connect: "Conectar", disconnect: "Desconectar", connecting: "Conectando…", disc: "Desconectado",
+    conn: "Conectado — FMini-1", save: "Salvar som", open: "Abrir som", home: "Site do FMini-1", donate: "Apoie o projeto (Ko-fi)",
+    foot1: "Funciona no Chrome, Edge e Android (Web MIDI com SysEx). Os ajustes valem para o som que está tocando; para guardar, use o SAVE do próprio aparelho.",
+    nomidi: "Este navegador não tem Web MIDI com SysEx. Use o Chrome ou o Edge (computador) ou o Chrome no Android.",
+    denied: "O navegador negou o acesso MIDI. Libere “MIDI” nas permissões do site e tente de novo.",
+    none: "Nenhum FM-1 encontrado. Conecte o cabo USB, feche outros programas que usam a porta MIDI e toque em Conectar.",
+    pick: "Escolha a porta MIDI do FM-1 na lista ao lado e toque em Conectar.",
+    noedit: "Este firmware não parece ser o FMini-1. O editor é só para o FMini-1.",
+    oldfw: "Este FMini-1 tem um firmware antigo. Atualize pelo instalador atual e conecte de novo.",
+    getlink: "Abrir o instalador atual",
+    fwnew: "Há uma versão nova do firmware do FMini-1 (v%l). Seu aparelho tem %c. Atualize pelo instalador do site.", fwold: "uma versão anterior", fwok: "Abrir o instalador", fwclose: "Fechar", usbTitle: "Áudio USB de saída: contadores", usbAlt: "Interface de saída ativa (alt)", usbPlay: "Tocando agora", usbSetIf: "Vezes que o Windows selecionou a saída", usbIrq: "Interrupções do endpoint 3", usbPkts: "Pacotes recebidos", usbFrames: "Quadros guardados", usbDrops: "Pacotes descartados (fila cheia)", usbDry: "Blocos sem quadro (fila vazia)", usbSkip: "Quadros descartados (fila acima da faixa)", usbRep: "Quadros repetidos (fila abaixo da faixa)", usbFill: "Fila agora (quadros, de 0 a 512)", usbOvr: "Pacotes com overrun (não lidos a tempo)", usbCrc: "Pacotes com erro de dados", usbYes: "sim", usbNo: "não",
+    noext: "Atualização disponível: instale o FMini-1 v1.6.1 ou mais novo para editar a oitava e guardar tempo, oitava e efeitos na biblioteca.",
+    noenv: "Atualização necessária: este firmware não tem o editor de osciladores e chaves. Instale a versão mais nova pelo site para editar tudo.",
+    nonames: "Atualização disponível: este firmware envia só os nomes dos %n primeiros presets. Instale o FMini-1 v1.7.2 ou mais novo para ver todos.",
+    noeng: "A trilha 1 não está com o motor FMINI.", lost: "A conexão com o aparelho foi perdida.", timeout: "O aparelho não respondeu.",
+    badfile: "Arquivo de som inválido.", rnd: "Aleatorizar", amt: "Variação", abcopy: "Copiar A → B", abcopyb: "Copiar B → A", abtip: "Alterna entre dois ajustes para comparar",
+    lib: "PRESETS", libload: "Carregar", libempty: "— vazio —", libtitle: "Backup", indiv: "Restaurar Presets individuais:",
+    resetall: "Restaurar todos os presets de fábrica", resetone: "Restaurar", askreset: "Restaurar o preset %n para o de fábrica? O que está gravado nele será substituído.",
+    askresetall: "Restaurar os 200 presets de fábrica (000–199)? O que está gravado neles será substituído.", busyreset: "Restaurando os presets de fábrica… não desconecte o USB.",
+    resetdone: "Presets de fábrica restaurados.", resetfail: "O aparelho não conseguiu restaurar o preset.",
+    bakexp: "Fazer backup (.bkp)", bakimp: "Restaurar backup (.bkp)", busybak: "Lendo os 200 presets…", bakdone: "Backup salvo.",
+    busyrest: "Gravando os 200 presets… não desconecte o USB.", waitdev: "Confirme no aparelho: ALGORITHM = YES, depois SAVE. Qualquer botão de página cancela.",
+    restdone: "Presets restaurados.", refused: "Restauração recusada no aparelho (ou sem resposta).", restfail: "Falhou ao gravar no aparelho. Os presets gravados até aqui ficaram; refaça a restauração.",
+    badbkp: "Arquivo de backup inválido.", recfail: "O aparelho não devolveu um preset.", busyread: "Lendo…", loaded: "Som carregado no aparelho.", saved: "Som salvo em arquivo." },
+  en: { editor: "Editor", connect: "Connect", disconnect: "Disconnect", connecting: "Connecting…", disc: "Disconnected",
+    conn: "Connected — FMini-1", save: "Save sound", open: "Open sound", home: "FMini-1 site", donate: "Support the project (Ko-fi)",
+    foot1: "Works in Chrome, Edge and Android (Web MIDI with SysEx). Edits change the sound that is playing; to keep it, use the device's own SAVE.",
+    nomidi: "This browser has no Web MIDI with SysEx. Use Chrome or Edge (desktop) or Chrome on Android.",
+    denied: "The browser denied MIDI access. Allow “MIDI” in the site permissions and try again.",
+    none: "No FM-1 found. Plug in the USB cable, close other programs using the MIDI port and press Connect.",
+    pick: "Pick the FM-1's MIDI port in the list and press Connect.",
+    noedit: "This firmware does not look like the FMini-1. The editor is for the FMini-1 only.",
+    oldfw: "This FMini-1 runs an old firmware. Update it with the current installer and connect again.",
+    getlink: "Open the current installer",
+    fwnew: "A new FMini-1 firmware is out (v%l). Your device has %c. Update it with the installer on the site.", fwold: "an earlier version", fwok: "Open the installer", fwclose: "Close", usbTitle: "USB audio out: counters", usbAlt: "Playback interface alt setting", usbPlay: "Playing now", usbSetIf: "Times Windows selected the output", usbIrq: "Endpoint 3 interrupts", usbPkts: "Packets received", usbFrames: "Frames stored", usbDrops: "Packets dropped (ring full)", usbDry: "Blocks without a frame (ring empty)", usbSkip: "Frames dropped (fill above the band)", usbRep: "Frames repeated (fill below the band)", usbFill: "Fill now (frames, 0 to 512)", usbOvr: "Packets with overrun (not read in time)", usbCrc: "Packets with data error", usbYes: "yes", usbNo: "no",
+    noext: "Update available: install FMini-1 v1.6.1 or newer to edit the octave and keep tempo, octave and effects in the library.",
+    noenv: "Update needed: this firmware has no oscillator / switch editing. Install the newest version from the site to edit everything.",
+    nonames: "Update available: this firmware sends only the names of the first %n presets. Install FMini-1 v1.7.2 or newer to see them all.",
+    noeng: "Track 1 is not on the FMINI engine.", lost: "The connection to the device was lost.", timeout: "The device did not answer.",
+    badfile: "Invalid sound file.", rnd: "Randomize", amt: "Amount", abcopy: "Copy A → B", abcopyb: "Copy B → A", abtip: "Switch between two settings to compare",
+    lib: "PRESETS", libload: "Load", libempty: "— empty —", libtitle: "Backup", indiv: "Restore individual presets:",
+    resetall: "Restore all factory presets", resetone: "Restore", askreset: "Restore preset %n to its factory preset? What is saved in it will be replaced.",
+    askresetall: "Restore the 200 factory presets (000–199)? What is saved in them will be replaced.", busyreset: "Restoring the factory presets… do not unplug USB.",
+    resetdone: "Factory presets restored.", resetfail: "The device could not restore the preset.",
+    bakexp: "Make backup (.bkp)", bakimp: "Restore backup (.bkp)", busybak: "Reading the 200 presets…", bakdone: "Backup saved.",
+    busyrest: "Writing the 200 presets… do not unplug USB.", waitdev: "Confirm on the device: ALGORITHM = YES, then SAVE. Any page button cancels.",
+    restdone: "Presets restored.", refused: "Restore refused on the device (or no answer).", restfail: "The device refused a write. The presets written so far stay; run the restore again.",
+    badbkp: "Invalid backup file.", recfail: "The device did not return a preset.", busyread: "Reading…", loaded: "Sound loaded into the device.", saved: "Sound saved to a file." },
+};
+const LANG = /^pt/i.test(navigator.language || "") ? "pt" : "en";
+const T = (k, o) => { let t = TX[LANG][k] || k; for (const x in o || {}) t = t.replace("%" + x, o[x]); return t; };
+document.documentElement.lang = LANG === "pt" ? "pt-BR" : "en";
+
+/* ---------------------------------------------------------------- protocol --- */
+const CMD = { INFO: 1, GET: 2, SET: 3, DUMP: 4, DESC: 5, PRESET: 8, NAMES: 10, TRACK: 27, FMINI_GET: 82, FMINI_PUT: 83, FMINI_PRESET: 84, FMINI_REC: 85, FMINI_RPUT: 86, FMINI_RESTORE: 87, FMINI_RESET: 88, USBDIAG: 89 };
+const FG = { R1: 0, R2: 1, R3: 2, W1: 3, W2: 4, W3: 5, F2: 6, F3: 7, L1: 8, L2: 9, L3: 10, LN: 11, SW1: 12, SW2: 13, TUNE: 14, MMIX: 15, KBD: 16, GLID: 17, SIZE: 32 };
+const FS = { O1: 1, O2: 2, O3: 4, NZ: 8, PINK: 16, MOSC: 32, MFLT: 64 }, FT = { GLIDE: 1, SQR: 2 };
+/* track parameters (core.h; all but E0..E7 are fixed ids) and globals */
+const P = { LEVEL: 0, ATK: 1, DEC: 2, SUS: 3, REL: 4, LRATE: 9, AMODE: 17, ARATE: 18, AOCT: 19, AGATE: 20, DIST: 33, CHOR: 34, DLY: 35, REV: 36, VOICE: 37, GLIDE: 38 };
+const G = { BPM: 0, DTIME: 4, DFDBK: 5, RSIZE: 8, RDAMP: 9, CRATE: 10, CDEPTH: 11, MIDI: 12, INFO: 15, ENGGO: 21, RTYPE: 24, DRLVL: 25, DRREV: 26 };
+
+const v14 = (n) => { n = Math.max(-8192, Math.min(8191, Math.round(n))) + 8192; return [n & 127, n >> 7]; };
+const rv = (a, i) => (a[i] | (a[i + 1] << 7)) - 8192;
+const cstr = (a, i) => { let s = ""; while (i < a.length && a[i]) s += String.fromCharCode(a[i++]); return [s, i + 1]; };
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+/* the newest firmware this page knows: keep it equal to FMINI_VER_MAJ/MIN/PATCH in firmware/src/core.h (the device reports its own, tag 0x49) */
+const FW_LATEST = [2, 2, 11], FW_LATEST_TXT = "2.2.11";
+
+const dev = { access: null, inp: null, out: null, waiter: null, chain: Promise.resolve(), open: false };
+
+function onMsg(ev) {
+  const d = ev.data;
+  if (d[0] !== 0xF0 || d[1] !== 0x7D || d[2] !== 0x46 || d[3] !== 0x4C || !dev.waiter || dev.waiter.cmd !== d[4]) return;
+  const w = dev.waiter; dev.waiter = null;
+  w.res(Array.from(d.slice(5, d.length - 1)));
+}
+function req(cmd, args = [], ms = 900) {
+  const p = dev.chain.then(() => new Promise((res, rej) => {
+    if (!dev.out || dev.out.state === "disconnected") return rej(new Error("lost"));
+    const t = setTimeout(() => { dev.waiter = null; rej(new Error("timeout")); }, ms);
+    dev.waiter = { cmd, res: (a) => { clearTimeout(t); res(a); } };
+    try { dev.out.send([0xF0, 0x7D, 0x46, 0x4C, cmd, ...args, 0xF7]); } catch (e) { clearTimeout(t); dev.waiter = null; rej(new Error("lost")); }
+  }));
+  dev.chain = p.catch(() => {});
+  return p;
+}
+
+/* ------------------------------------------------------------------ state --- */
+const S = {
+  pe0: 103, patch: new Array(FG.SIZE).fill(0), p: [], g: [], slot: 0, engine: 0, fmini: -1, desc: {},
+  names: [], canPatch: false, extras: false, oct: 0, page: 0,
+};
+const touch = { until: 0, dragging: 0 };
+let pollTimer = 0, polling = false;
+
+/* -------------------------------------------------------------- the panel --- */
+/* kinds: byte (patch byte), par (track param), glb (global), sw (patch bit), seg (patch byte with names), sel (enum param / global),
+   glide (the GLIDE knob: kept time, mirrored into P_GLIDE while the switch is on). pe: engine parameter n (P_E0 + n) */
+const RANGES = ["LO", "32'", "16'", "8'", "4'", "2'"], WAVES = ["TRI", "SHARK", "SAW", "SQR", "PLS W", "PLS N"];
+const PAGES = [
+  { id: "CTRL", groups: [
+    { t: "Controllers", c: [
+      { k: "byte", b: FG.TUNE, lb: "TUNE", def: 64 }, { k: "glide", lb: "GLIDE" }, { k: "byte", b: FG.MMIX, lb: "MOD MIX", def: 0 },
+      { k: "par", p: P.LRATE, lb: "LFO RATE" }, { k: "sel", p: P.VOICE, lb: "VOICES" },
+      { k: "seg", oct: 1, names: ["-3", "-2", "-1", "0", "+1", "+2", "+3"], lb: "OCTAVE" } ] },
+    { t: "Modulation", c: [
+      { k: "sw", b: FG.SW1, bit: FS.MOSC, lb: "MOD OSC", cls: "red" }, { k: "sw", b: FG.SW1, bit: FS.MFLT, lb: "MOD FLT", cls: "red" },
+      { k: "sw", b: FG.SW2, bit: FT.GLIDE, lb: "GLIDE", cls: "red", glide: 1 }, { k: "sw", b: FG.SW2, bit: FT.SQR, lb: "LFO SQR", cls: "red" } ] } ] },
+  { id: "OSC", groups: [
+    { t: "Oscillator bank", c: [
+      { k: "seg", b: FG.R1, names: RANGES, lb: "OSC 1 RANGE" }, { k: "seg", b: FG.R2, names: RANGES, lb: "OSC 2 RANGE" }, { k: "seg", b: FG.R3, names: RANGES, lb: "OSC 3 RANGE" } ] },
+    { t: "Waveform", c: [
+      { k: "seg", b: FG.W1, names: WAVES, lb: "OSC 1 WAVE" }, { k: "seg", b: FG.W2, names: WAVES, lb: "OSC 2 WAVE" }, { k: "seg", b: FG.W3, names: WAVES, lb: "OSC 3 WAVE" } ] },
+    { t: "Detune", c: [ { k: "byte", b: FG.F2, lb: "DET 2", def: 64 }, { k: "byte", b: FG.F3, lb: "DET 3", def: 64 } ] } ] },
+  { id: "MIX", groups: [
+    { t: "Mixer", c: [
+      { k: "byte", b: FG.L1, lb: "OSC 1" }, { k: "byte", b: FG.L2, lb: "OSC 2" }, { k: "byte", b: FG.L3, lb: "OSC 3" }, { k: "byte", b: FG.LN, lb: "NOISE" } ] },
+    { t: "Inputs", c: [
+      { k: "sw", b: FG.SW1, bit: FS.O1, lb: "OSC 1", cls: "blue" }, { k: "sw", b: FG.SW1, bit: FS.O2, lb: "OSC 2", cls: "blue" },
+      { k: "sw", b: FG.SW1, bit: FS.O3, lb: "OSC 3", cls: "blue" }, { k: "sw", b: FG.SW1, bit: FS.NZ, lb: "NOISE", cls: "blue" },
+      { k: "sw", b: FG.SW1, bit: FS.PINK, lb: "PINK", cls: "blue" } ] } ] },
+  { id: "FILT", groups: [
+    { t: "Filter", c: [
+      { k: "par", pe: 0, lb: "CUTOFF" }, { k: "par", pe: 1, lb: "EMPHASIS" }, { k: "par", pe: 2, lb: "CONTOUR" }, { k: "byte", b: FG.KBD, lb: "KBD CTRL" } ] } ] },
+  { id: "F.ENV", groups: [
+    { t: "Filter contour", c: [
+      { k: "par", pe: 3, lb: "ATTACK" }, { k: "par", pe: 4, lb: "DECAY" }, { k: "par", pe: 5, lb: "SUSTAIN" }, { k: "par", pe: 2, lb: "AMOUNT" } ] } ] },
+  { id: "A.ENV", groups: [
+    { t: "Loudness contour", c: [
+      { k: "par", p: P.ATK, lb: "ATTACK" }, { k: "par", p: P.DEC, lb: "DECAY" }, { k: "par", p: P.SUS, lb: "SUSTAIN" }, { k: "par", p: P.LEVEL, lb: "LEVEL" } ] } ] },
+  { id: "FX", groups: [
+    { t: "Reverb", c: [ { k: "par", p: P.REV, lb: "MIX" }, { k: "sel", g: G.RTYPE, lb: "TYPE" }, { k: "glb", g: G.RSIZE, lb: "DECAY" }, { k: "glb", g: G.RDAMP, lb: "TONE" } ] },
+    { t: "Delay", c: [ { k: "par", p: P.DLY, lb: "MIX" }, { k: "sel", g: G.DTIME, lb: "TYPE" }, { k: "glb", g: G.DRREV, lb: "TIME" }, { k: "glb", g: G.DFDBK, lb: "FEEDBK" } ] },
+    { t: "Chorus", c: [ { k: "par", p: P.CHOR, lb: "MIX" }, { k: "sel", g: G.ENGGO, lb: "TYPE" }, { k: "glb", g: G.CDEPTH, lb: "DEPTH" }, { k: "glb", g: G.CRATE, lb: "RATE" } ] },
+    { t: "Drive", c: [ { k: "par", p: P.DIST, lb: "GAIN" }, { k: "sel", g: G.INFO, lb: "TYPE" }, { k: "glb", g: G.DRLVL, lb: "TONE" }, { k: "glb", g: G.MIDI, lb: "OUTPUT" } ] } ] },
+  { id: "ARP", groups: [
+    { t: "Arpeggiator", c: [ { k: "sel", p: P.AMODE, lb: "MODE" }, { k: "par", p: P.ARATE, lb: "RATE" }, { k: "par", p: P.AOCT, lb: "OCTAVES" }, { k: "par", p: P.AGATE, lb: "GATE" }, { k: "glb", g: G.BPM, lb: "BPM" } ] } ] },
+  { id: "LIB", lib: true, groups: [] },
+];
+
+const pid = (c) => (c.pe !== undefined ? S.pe0 + c.pe : c.p);
+const descOf = (c) => (c.g !== undefined ? S.desc["1:" + c.g] : S.desc["0:" + pid(c)]) || { min: 0, max: 127, def: 0, names: null, fmt: 0 };
+function getv(c) {
+  if (c.k === "byte") return S.patch[c.b];
+  if (c.k === "glide") return S.patch[FG.GLID];
+  if (c.k === "seg") return c.oct ? S.oct + 3 : S.patch[c.b];
+  if (c.k === "sw") return (S.patch[c.b] & c.bit) ? 1 : 0;
+  if (c.g !== undefined) return S.g[c.g] ?? 0;
+  return S.p[pid(c)] ?? 0;
+}
+function range(c) {
+  if (c.k === "byte" || c.k === "glide") return [0, 127];
+  const d = descOf(c); return [d.min, d.max];
+}
+const shown = (c, v) => {
+  if (c.k === "sel") { const d = descOf(c); return (d.names && d.names[v]) || String(v); }
+  const [lo, hi] = range(c);
+  if (c.k === "par" && c.pe === 0 && hi > lo) {                  /* CUTOFF: the Minimoog's dial, -5 .. +5 */
+    const d = ((v - lo) * 10) / (hi - lo) - 5, t = (Math.abs(d) < 0.05 ? 0 : d).toFixed(1);
+    return d >= 0.05 ? "+" + t : t;
+  }
+  return hi > lo ? (((v - lo) * 10) / (hi - lo)).toFixed(1) : String(v);
+};
+
+/* writes: coalesced per control, and only one round in flight. A drag makes far more changes than the device takes (it
+ * takes requests between its screen redraws, one per pass of its main loop): a request per change piled up behind the
+ * device and it kept following old positions for seconds after the mouse stopped. Now a round writes every control
+ * changed so far with its value at that moment; what changes meanwhile waits for the next round, so the lag is one
+ * round trip, however long the drag */
+const pending = new Map();
+let flushT = 0, flushing = false;
+function queue(key, fn) { pending.set(key, fn); touch.until = Date.now() + 500; if (!flushT && !flushing) flushT = setTimeout(flush, 30); }
+async function flush() {
+  flushT = 0;
+  if (flushing) return;
+  flushing = true;
+  try {
+    while (pending.size) {
+      const jobs = [...pending.values()]; pending.clear();
+      for (const j of jobs) await j();
+    }
+  } catch (e) { pending.clear(); fail(e); }
+  finally { flushing = false; touch.until = Date.now() + 400; }
+}
+function putPatch() { return () => req(CMD.FMINI_PUT, [0, 0, ...S.patch, ...(S.extras ? [S.oct + 4] : [])]); }
+function setPar(id) { return () => req(CMD.SET, [0, id, ...v14(S.p[id])]); }
+function setGlb(id) { return () => req(CMD.SET, [1, id, ...v14(S.g[id])]); }
+function commit(c, v) {
+  const [lo, hi] = range(c);
+  v = Math.max(lo, Math.min(hi, Math.round(v)));
+  if (c.oct) { S.oct = v - 3; queue("patch", putPatch()); }
+  else if (c.k === "byte" || c.k === "seg") { S.patch[c.b] = v; queue("patch", putPatch()); }
+  else if (c.k === "glide") {
+    S.patch[FG.GLID] = v; queue("patch", putPatch());
+    if (S.patch[FG.SW2] & FT.GLIDE) { S.p[P.GLIDE] = v; queue("p" + P.GLIDE, setPar(P.GLIDE)); }
+  } else if (c.k === "sw") {
+    S.patch[c.b] = v ? S.patch[c.b] | c.bit : S.patch[c.b] & ~c.bit; queue("patch", putPatch());
+    if (c.glide) { S.p[P.GLIDE] = v ? S.patch[FG.GLID] : 0; queue("p" + P.GLIDE, setPar(P.GLIDE)); }
+  } else if (c.g !== undefined) { S.g[c.g] = v; queue("g" + c.g, setGlb(c.g)); }
+  else { const id = pid(c); S.p[id] = v; queue("p" + id, setPar(id)); }
+  refreshOne(c);
+}
+
+/* ------------------------------------------------------------ the widgets --- */
+const ctl = []; /* {c, el, upd()} of the page on screen */
+const A0 = -135, A1 = 135;
+const polar = (a, r) => { const t = (a - 90) * Math.PI / 180; return [35 + r * Math.cos(t), 35 + r * Math.sin(t)]; };
+function arcPath(a0, a1, r) {
+  const [x0, y0] = polar(a0, r), [x1, y1] = polar(a1, r);
+  return `M${x0.toFixed(2)} ${y0.toFixed(2)}A${r} ${r} 0 ${a1 - a0 > 180 ? 1 : 0} 1 ${x1.toFixed(2)} ${y1.toFixed(2)}`;
+}
+function mkKnob(c) {
+  const el = document.createElement("div");
+  el.className = "knob"; el.tabIndex = 0; el.setAttribute("role", "slider"); el.setAttribute("aria-label", c.lb);
+  el.innerHTML = `<svg viewBox="0 0 70 70"><path class="ring" d="${arcPath(A0, A1, 31)}"/><path class="arc" d=""/><circle class="cap" cx="35" cy="35" r="22"/><line class="tick" x1="35" y1="35" x2="35" y2="17"/></svg><div class="lb"></div><div class="val"></div>`;
+  el.querySelector(".lb").textContent = c.lb;
+  const arc = el.querySelector(".arc"), tick = el.querySelector(".tick"), val = el.querySelector(".val");
+  const upd = () => {
+    const [lo, hi] = range(c), v = getv(c), f = hi > lo ? (v - lo) / (hi - lo) : 0, a = A0 + f * (A1 - A0);
+    arc.setAttribute("d", f > 0.004 ? arcPath(A0, a, 31) : "");
+    tick.setAttribute("transform", `rotate(${a} 35 35)`);
+    val.textContent = shown(c, v);
+    el.setAttribute("aria-valuemin", lo); el.setAttribute("aria-valuemax", hi); el.setAttribute("aria-valuenow", v); el.setAttribute("aria-valuetext", shown(c, v));
+  };
+  let y0 = 0, v0 = 0;
+  el.addEventListener("pointerdown", (e) => { el.setPointerCapture(e.pointerId); y0 = e.clientY; v0 = getv(c); touch.dragging++; el.focus(); e.preventDefault(); });
+  el.addEventListener("pointermove", (e) => {
+    if (!el.hasPointerCapture(e.pointerId)) return;
+    const [lo, hi] = range(c), px = e.shiftKey ? 700 : 190;
+    commit(c, v0 + ((y0 - e.clientY) / px) * (hi - lo));
+  });
+  const up = (e) => { if (el.hasPointerCapture(e.pointerId)) { el.releasePointerCapture(e.pointerId); touch.dragging = Math.max(0, touch.dragging - 1); } };
+  el.addEventListener("pointerup", up); el.addEventListener("pointercancel", up);
+  el.addEventListener("wheel", (e) => { e.preventDefault(); const [lo, hi] = range(c); commit(c, getv(c) + (e.deltaY < 0 ? 1 : -1) * Math.max(1, (hi - lo) / 100)); }, { passive: false });
+  el.addEventListener("keydown", (e) => {
+    const [lo, hi] = range(c), st = Math.max(1, Math.round((hi - lo) / (e.shiftKey ? 100 : 20)));
+    const m = { ArrowUp: st, ArrowRight: st, ArrowDown: -st, ArrowLeft: -st, PageUp: st * 4, PageDown: -st * 4 }[e.key];
+    if (m) { commit(c, getv(c) + m); e.preventDefault(); } else if (e.key === "Home") { commit(c, lo); e.preventDefault(); } else if (e.key === "End") { commit(c, hi); e.preventDefault(); }
+  });
+  el.addEventListener("dblclick", () => commit(c, c.def !== undefined ? c.def : c.k === "par" || c.k === "glb" ? descOf(c).def : lo0(c)));
+  return { el, upd };
+}
+const lo0 = (c) => range(c)[0];
+function mkSwitch(c) {
+  const el = document.createElement("button");
+  el.className = "sw " + (c.cls || ""); el.innerHTML = `<i></i><span></span>`; el.querySelector("span").textContent = c.lb;
+  el.addEventListener("click", () => commit(c, getv(c) ? 0 : 1));
+  return { el, upd: () => el.setAttribute("aria-pressed", getv(c) ? "true" : "false") };
+}
+function mkSeg(c) {
+  const el = document.createElement("div"); el.className = "seg";
+  el.innerHTML = `<div class="t"></div><div class="opts"></div>`; el.querySelector(".t").textContent = c.lb;
+  const bs = c.names.map((n, i) => { const b = document.createElement("button"); b.textContent = n; b.addEventListener("click", () => commit(c, i)); el.querySelector(".opts").append(b); return b; });
+  return { el, upd: () => bs.forEach((b, i) => b.setAttribute("aria-pressed", getv(c) === i ? "true" : "false")) };
+}
+const NOT_OFFERED = new Set(["LEG", "UNI"]);
+function mkSel(c) {
+  const el = document.createElement("div"); el.className = "sel";
+  el.innerHTML = `<div class="t"></div><select></select>`; el.querySelector(".t").textContent = c.lb;
+  const s = el.querySelector("select"), d = descOf(c);
+  const n = d.names ? d.names.length : d.max - d.min + 1;
+  for (let i = 0; i < n; i++) {
+    const o = document.createElement("option"); o.value = d.min + i; o.textContent = d.names ? d.names[i] : String(d.min + i);
+    o.hidden = !!d.names && NOT_OFFERED.has(d.names[i]);   /* VOICE LEG / UNI: not offered, still shown when a patch has them */
+    s.append(o);
+  }
+  s.addEventListener("change", () => commit(c, +s.value));
+  return { el, upd: () => { if (document.activeElement !== s) s.value = getv(c); } };
+}
+function build() {
+  const panel = document.getElementById("panel"); panel.textContent = ""; ctl.length = 0;
+  if (PAGES[S.page].lib) { buildLib(); return; }
+  for (const g of PAGES[S.page].groups) {
+    const grp = document.createElement("section"); grp.className = "grp";
+    const h = document.createElement("h2"); h.textContent = g.t; grp.append(h);
+    const row = document.createElement("div"); row.className = "row"; grp.append(row);
+    for (const c of g.c) {
+      if (c.oct && !S.extras) continue;
+      const w = c.k === "sw" ? mkSwitch(c) : c.k === "seg" ? mkSeg(c) : c.k === "sel" ? mkSel(c) : mkKnob(c);
+      row.append(w.el); ctl.push({ c, el: w.el, upd: w.upd }); w.upd();
+    }
+    panel.append(grp);
+  }
+}
+function refreshOne(c) { for (const x of ctl) if (x.c === c || (x.c.k === "glide" && c.k === "sw")) x.upd(); }
+function refreshAll() {
+  ctl.forEach((x) => x.upd());
+  const pr = document.getElementById("preset");
+  if (S.slot < S.names.length) pr.value = S.slot; else pr.value = "own";
+}
+function tabs() {
+  const nav = document.getElementById("tabs"); nav.textContent = "";
+  PAGES.forEach((p, i) => {
+    const b = document.createElement("button"); b.role = "tab"; b.textContent = p.lib ? T("lib") : p.id; b.setAttribute("aria-selected", i === S.page);
+    b.addEventListener("click", () => { S.page = i; tabs(); build(); }); nav.append(b);
+  });
+}
+
+/* ------------------------------------------------------------- connection --- */
+const $ = (id) => document.getElementById(id);
+let msgT = 0;
+const msg = (t, bad) => {
+  clearTimeout(msgT);
+  $("msg").innerHTML = t ? `<div class="notice${bad ? " bad" : ""}"></div>` : ""; if (t) $("msg").firstChild.textContent = t;
+  if (t && !bad && !/^(Update|Atualiz)/.test(t)) msgT = setTimeout(() => { $("msg").textContent = ""; }, 3500);   /* (a confirmation fades; errors and the update notice stay) */
+};
+function setStatus(on, text) { $("dot").className = "dot" + (on ? " on" : ""); $("stxt").textContent = text; document.body.classList.toggle("off", !on); }
+function fail(e) {
+  stopPoll(); closePorts();
+  setStatus(false, T("disc")); $("connect").textContent = T("connect"); $("connect").disabled = false;
+  msg(T(e && (e.message === "timeout" || e.message === "lost") ? e.message : "lost"), true);
+}
+function closePorts() {
+  if (dev.inp) dev.inp.onmidimessage = null; dev.inp = dev.out = null; dev.open = false; dev.waiter = null; dev.chain = Promise.resolve();
+}
+const MATCH = /fm-1|fmini|felucca/i;
+function ports() {
+  const outs = [...dev.access.outputs.values()];
+  return [...dev.access.inputs.values()].filter((i) => i.state !== "disconnected").map((i) => ({ i, o: outs.find((o) => o.name === i.name && o.state !== "disconnected") })).filter((x) => x.o);
+}
+function fillPorts(keep) {
+  const sel = $("port"), all = ports(); sel.textContent = "";
+  for (const x of all) { const o = document.createElement("option"); o.value = x.i.name; o.textContent = x.i.name; sel.append(o); }
+  const m = all.filter((x) => MATCH.test(x.i.name));
+  sel.hidden = all.length < 2 && m.length === 1;
+  if (keep && all.some((x) => x.i.name === keep)) sel.value = keep; else if (m[0]) sel.value = m[0].i.name;
+  return all;
+}
+async function connect() {
+  msg(""); $("connect").disabled = true; $("connect").textContent = T("connecting");
+  try {
+    if (!navigator.requestMIDIAccess) { msg(T("nomidi"), true); throw 0; }
+    if (!dev.access) {
+      try { dev.access = await navigator.requestMIDIAccess({ sysex: true }); } catch (e) { msg(T(e && e.name === "SecurityError" ? "denied" : "nomidi"), true); throw 0; }
+      dev.access.onstatechange = () => { if (dev.open && (!dev.inp || dev.inp.state === "disconnected" || dev.out.state === "disconnected")) fail(new Error("lost")); else if (!dev.open) fillPorts($("port").value); };
+    }
+    const all = fillPorts();
+    if (!all.length) { msg(T("none"), true); throw 0; }
+    const m = all.filter((x) => MATCH.test(x.i.name));
+    let pick = all.find((x) => x.i.name === $("port").value);
+    if (!pick || (!MATCH.test(pick.i.name) && m.length && !$("port").dataset.user)) pick = m[0] || pick;
+    if (!m.length && all.length > 1 && !$("port").dataset.user) { $("port").hidden = false; msg(T("pick")); throw 0; }
+    await pick.i.open(); await pick.o.open();
+    dev.inp = pick.i; dev.out = pick.o; dev.inp.onmidimessage = onMsg; dev.open = true;
+    await handshake();
+    setStatus(true, T("conn")); $("connect").textContent = T("disconnect"); $("connect").disabled = false;
+    startPoll();
+    fwCheck();
+  } catch (e) {
+    if (e instanceof Error) {
+      closePorts(); msg(T(e.code || (e.message === "timeout" ? "timeout" : "none")), true);
+      if (e.code === "oldfw") {                       /* the installer link (the current firmware's page) */
+        const a = document.createElement("a"); a.href = "https://ruppert.github.io/fmini-1/"; a.textContent = " " + T("getlink");
+        $("msg").firstChild.append(a);
+      }
+    }
+    setStatus(false, T("disc")); $("connect").textContent = T("connect"); $("connect").disabled = false;
+  }
+}
+/* USB diagnostics (command 89, firmware 1.14.3): the playback counters in a pop-up */
+function usbDiagShow(r) {
+  if (!r || r.length < 3 + 55 || r[0] !== 1) { msg(T("oldfw"), true); return; }
+  const cnt = (k) => { let v = 0; for (let j = 4; j >= 0; j--) v = v * 128 + (r[3 + 5 * k + j] & 127); return v; };
+  const names = ["usbSetIf", "usbIrq", "usbPkts", "usbFrames", "usbDrops", "usbDry", "usbSkip", "usbRep", "usbFill", "usbOvr", "usbCrc"];
+  const box = document.createElement("div");
+  box.id = "usbpop";
+  box.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px";
+  const card = document.createElement("div");
+  card.style.cssText = "background:var(--panel,#fff);color:var(--ink,#111);border:1px solid var(--line,#999);border-radius:8px;max-width:520px;padding:20px;font:14px/1.5 system-ui,sans-serif";
+  const h = document.createElement("h3"); h.textContent = T("usbTitle"); h.style.margin = "0 0 8px";
+  const pre = document.createElement("pre"); pre.style.cssText = "margin:0;white-space:pre-wrap;font:13px/1.5 ui-monospace,monospace";
+  const lines = [[T("usbAlt"), String(r[1])], [T("usbPlay"), r[2] ? T("usbYes") : T("usbNo")]];
+  names.forEach((n, k) => lines.push([T(n), String(cnt(k))]));
+  pre.textContent = lines.map(([a, b]) => a + ": " + b).join("\n");
+  const row = document.createElement("div"); row.style.cssText = "display:flex;justify-content:flex-end;margin-top:14px";
+  const x = document.createElement("button"); x.className = "btn"; x.textContent = T("fwclose");
+  x.onclick = () => box.remove();
+  row.append(x); card.append(h, pre, row); box.append(card); box.onclick = (e) => { if (e.target === box) box.remove(); };
+  document.body.append(box);
+}
+$("usbdiag").addEventListener("click", async () => {
+  if (!dev.open) { msg(T("none")); return; }
+  let r;
+  try { r = await req(CMD.USBDIAG, [], 1500); } catch (e) { msg(T("timeout"), true); return; }
+  usbDiagShow(r);
+});
+
+/* the device runs an older firmware than this page: a pop-up with the link to the installer */
+function fwCheck() {
+  const v = S.fwver;
+  const older = !v || v[0] < FW_LATEST[0] || (v[0] === FW_LATEST[0] && (v[1] < FW_LATEST[1] || (v[1] === FW_LATEST[1] && v[2] < FW_LATEST[2])));
+  if (!older) return;
+  const box = document.createElement("div");
+  box.id = "fwpop";
+  box.style.cssText = "position:fixed;inset:0;background:rgba(0,0,0,.55);display:flex;align-items:center;justify-content:center;z-index:50;padding:16px";
+  const card = document.createElement("div");
+  card.style.cssText = "background:var(--panel,#fff);color:var(--ink,#111);border:1px solid var(--line,#999);border-radius:8px;max-width:420px;padding:20px;font:15px/1.4 system-ui,sans-serif";
+  const now = v ? "v" + v.join(".") : T("fwold");
+  const p = document.createElement("p"); p.textContent = T("fwnew", { l: FW_LATEST_TXT, c: now });
+  const row = document.createElement("div"); row.style.cssText = "display:flex;gap:8px;justify-content:flex-end;margin-top:14px";
+  const go = document.createElement("a"); go.href = "https://ruppert.github.io/fmini-1/"; go.target = "_blank"; go.rel = "noopener"; go.className = "btn pri"; go.textContent = T("fwok");
+  const x = document.createElement("button"); x.className = "btn"; x.textContent = T("fwclose");
+  x.onclick = () => box.remove();
+  row.append(x, go); card.append(p, row); box.append(card); box.onclick = (e) => { if (e.target === box) box.remove(); };
+  document.body.append(box);
+}
+const bad = (code) => { const e = new Error(code); e.code = code; return e; };
+async function handshake() {
+  let a;
+  try { a = await req(CMD.INFO, [], 1500); } catch (e) { await sleep(300); a = await req(CMD.INFO, [], 1500); }
+  let [ver, i] = cstr(a, 0);
+  if (!/^FELUCCA/.test(ver)) throw bad("noedit");
+  const nEng = a[i++]; const pCount = a[i++]; const gCount = a[i++]; i++; /* NSTEP */ S.pe0 = a[i++];
+  const eng = []; for (let k = 0; k < nEng; k++) { let s; [s, i] = cstr(a, i); eng.push(s); }
+  /* protocol: after the engine names, NTRK, then tag 0x56 (version 1) and the protocol number, then CHAIN_ROWS */
+  const proto = a[i + 1] === 0x56 && a[i + 2] === 1 ? a[i + 3] : 0;
+  if (proto < 4) throw bad("oldfw");
+  S.fmini = eng.indexOf("FMINI");
+  if (S.fmini < 0) S.fmini = eng.indexOf("FMUG");          /* firmware up to 1.7.0 named the engine FMUG */
+  if (S.fmini < 0) throw bad("noedit");
+  S.canPatch = a.length >= 6 && [3, 6].some((k) => a[a.length - k] === 0x47 && a[a.length - k + 1] === 1 && a[a.length - k + 2] === FG.SIZE);
+  S.pCount = pCount; S.gCount = gCount;
+  S.extras = S.canPatch && a.length >= 6 && a[a.length - 3] === 0x48 && a[a.length - 2] === 1 && a[a.length - 1] === 1;
+  /* the firmware version (tag 0x49, 1.14.2): 5 bytes before the 0x47 block; null on firmware before it */
+  S.fwver = a.length >= 11 && a[a.length - 11] === 0x49 && a[a.length - 10] === 1 ? [a[a.length - 9], a[a.length - 8], a[a.length - 7]] : null;
+  if (!S.canPatch) msg(T("noenv")); else if (!S.extras) msg(T("noext"));
+  await req(CMD.TRACK, [0]);
+  /* descriptors of what the page edits (labels come from the page; ranges and enum names from the device) */
+  S.desc = {};
+  const want = new Set();
+  for (const p of PAGES) for (const g of p.groups) for (const c of g.c) { if (c.k === "par" || c.k === "sel" || c.k === "glb") want.add(c.g !== undefined ? "1:" + c.g : "0:" + pid(c)); }
+  for (const key of want) {
+    const [sc, id] = key.split(":").map(Number);
+    const r = await req(CMD.DESC, [sc, id]);
+    let j = 2; const fmt = r[j++]; const min = rv(r, j); j += 2; const max = rv(r, j); j += 2; const def = rv(r, j); j += 2;
+    let lab, unit; [lab, j] = cstr(r, j); [unit, j] = cstr(r, j);
+    const names = []; if (fmt === 8) while (j < r.length && names.length < 24) { let s; [s, j] = cstr(r, j); names.push(s); }
+    S.desc[key] = { fmt, min, max, def, label: lab, names: fmt === 8 ? names : null };
+  }
+  await readNames();
+  fillPreset(); tabs(); build();
+  await pull(true);
+}
+async function readNames() {
+  const nm = await req(CMD.NAMES, [S.fmini]);
+  S.names = []; { let j = 1; const n = nm[j] | nm[j + 1] << 7; j += 2; for (let k = 0; k < n; k++) { let s; [s, j] = cstr(nm, j); S.names.push(s); }
+    const got = S.names.filter(Boolean).length;            /* (firmware up to 1.7.1 cut the reply at 664 bytes: about 72 of the 100 names) */
+    if (got < n) msg(T("nonames", { n: got })); }
+}
+function fillPreset() {
+  const pr = $("preset"); pr.textContent = "";
+  S.names.forEach((n, i) => { const o = document.createElement("option"); o.value = i; o.textContent = String(i).padStart(3, "0") + "  " + n; pr.append(o); });
+  const o = document.createElement("option"); o.value = "own"; o.textContent = "— OWN —"; o.hidden = true; pr.append(o);
+}
+
+/* read everything the page shows: DUMP (track 1 and the globals) + the patch */
+async function pull(force) {
+  if (!dev.open) return;
+  const d = await req(CMD.DUMP, [], 1500);
+  if (d[0] !== S.fmini) { if (force) throw bad("noeng"); return; }
+  S.engine = d[0]; S.preset = d[1];
+  const pc = S.pCount, gc = S.gCount;
+  S.p = []; S.g = [];
+  for (let k = 0; k < pc; k++) S.p.push(rv(d, 2 + 2 * k));
+  for (let k = 0; k < gc; k++) S.g.push(rv(d, 2 + 2 * pc + 2 * k));
+  S.slot = S.p[S.pe0 + 7];
+  if (S.slot < S.names.length && !pending.size) cur = S.slot;
+  if (S.canPatch) {
+    const r = await req(CMD.FMINI_GET, [0, 0]);
+    if (r[2] === 0) { S.patch = r.slice(3, 3 + FG.SIZE); if (S.extras && r.length > 37) S.oct = r[37] - 4; }   /* (protocol 3: the SLOT is two bytes, r[35..36]) */
+  }
+  if (force) abReset();
+  refreshAll();
+}
+function startPoll() {
+  stopPoll();
+  pollTimer = setInterval(async () => {
+    if (polling || !dev.open || Date.now() < touch.until || touch.dragging || pending.size || flushing || document.hidden) return;
+    polling = true;
+    try { await pull(false); } catch (e) { if (dev.open) fail(e); } finally { polling = false; }
+  }, 700);
+}
+function stopPoll() { clearInterval(pollTimer); pollTimer = 0; }
+
+/* presets */
+let cur = 0;                                   /* the patch the page last asked for (so ◀ ◀ in a row counts twice) */
+async function loadPreset(k) {
+  if (!(k >= 0 && k < S.names.length)) return;
+  cur = k; touch.until = Date.now() + 800;
+  try { await req(CMD.PRESET, [S.fmini, k & 127, k >> 7], 1500); await sleep(60); await pull(true); } catch (e) { fail(e); }
+}
+$("preset").addEventListener("change", (e) => loadPreset(+e.target.value));
+$("prev").addEventListener("click", () => loadPreset((cur + S.names.length - 1) % S.names.length));
+$("next").addEventListener("click", () => loadPreset((cur + 1) % S.names.length));
+$("connect").addEventListener("click", () => { if (dev.open) { stopPoll(); closePorts(); setStatus(false, T("disc")); $("connect").textContent = T("connect"); } else connect(); });
+$("port").addEventListener("change", () => { $("port").dataset.user = "1"; });
+
+/* ------------------------------------------------- sounds: snapshots, files, A/B, randomize --- */
+function editable() {
+  const ps = new Set([P.GLIDE]), gs = new Set();
+  for (const p of PAGES) for (const g of p.groups) for (const c of g.c) {
+    if (c.g !== undefined) gs.add(c.g); else if (c.k === "par" || c.k === "sel") ps.add(pid(c));
+  }
+  return { p: [...ps], g: [...gs] };
+}
+function snapshot() {
+  const e = editable(), sn = { patch: S.patch.slice(), oct: S.oct, p: {}, g: {} };
+  for (const i of e.p) sn.p[i] = S.p[i];
+  for (const i of e.g) sn.g[i] = S.g[i];
+  return sn;
+}
+function applySnap(sn) {                                  /* what differs goes to the device */
+  const octD = S.extras && sn.oct !== undefined && sn.oct !== S.oct;
+  if (octD) S.oct = sn.oct;
+  if (S.canPatch && sn.patch && (octD || sn.patch.some((x, i) => x !== S.patch[i]))) { S.patch = sn.patch.slice(); queue("patch", putPatch()); }
+  for (const [k, v] of Object.entries(sn.p || {})) { const id = +k; if (id >= 0 && id < S.pCount && S.p[id] !== v) { S.p[id] = v; queue("p" + id, setPar(id)); } }
+  for (const [k, v] of Object.entries(sn.g || {})) { const id = +k; if (id >= 0 && id < S.gCount && S.g[id] !== v) { S.g[id] = v; queue("g" + id, setGlb(id)); } }
+  refreshAll();
+}
+/* the whole sound as a file object: the patch and every track parameter (kept by P_COUNT: the last 8 are E1..E8, as in user presets) */
+function soundObject(name, patch, p, g, oct) { return { fmini1: 1, name: name || "", patch: patch.slice(), p: p.slice(), g: g || {}, oct: oct || 0 }; }
+function currentSound(name) { const g = {}; for (const i of editable().g) g[i] = S.g[i]; return soundObject(name, S.patch, S.p, g, S.oct); }
+function objectToSnap(o) {
+  const sn = { patch: o.patch.map((x) => x & 127), oct: Math.max(-3, Math.min(3, o.oct | 0)), p: {}, g: o.g || {} };
+  if (Array.isArray(o.p)) {
+    const n = o.p.length, pc = S.pCount;
+    for (let id = 0; id < pc; id++) {
+      if (id === S.pe0 + 7) continue;                                   /* SLOT: the patch decides it */
+      const v = id >= S.pe0 ? (n >= 8 ? o.p[n - 8 + (id - S.pe0)] : undefined) : id < n - 8 ? o.p[id] : undefined;
+      if (v !== undefined) sn.p[id] = v | 0;
+    }
+  } else {                                                                /* (the first file format: only what the page edits) */
+    for (const [k, v] of Object.entries(o.params || {})) sn.p[k[0] === "E" ? S.pe0 + +k.slice(1) : +k] = v | 0;
+  }
+  return sn;
+}
+const validSound = (o) => o && o.fmini1 === 1 && Array.isArray(o.patch) && o.patch.length === FG.SIZE && (Array.isArray(o.p) || typeof o.params === "object");
+function download(obj, name) {
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([JSON.stringify(obj)], { type: "application/json" })); a.download = name; a.click();
+  setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+}
+const slug = (n) => (n || "fmini-sound").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "fmini-sound";
+const curName = () => (S.slot < S.names.length ? S.names[S.slot] : "") || "MY SOUND";
+
+$("save").addEventListener("click", () => { download(currentSound(curName()), slug(curName()) + ".json"); msg(T("saved")); });
+$("load").addEventListener("click", () => $("file").click());
+$("file").addEventListener("change", async (e) => {
+  const f = e.target.files[0]; e.target.value = ""; if (!f) return;
+  try {
+    const o = JSON.parse(await f.text());
+    if (o.fmini1bkp === 1) { try { await restoreAll(o); } catch (err) { msg(T(err.code || "lost"), true); } return; }
+    if (!validSound(o)) throw 0;
+    if (!S.canPatch) throw 0;
+    applySnap(objectToSnap(o)); msg(T("loaded"));
+  } catch (_) { msg(T("badfile"), true); }
+});
+
+/* A/B: two settings, one on the device; edits go to the one that is showing */
+const ab = { cur: "A", A: null, B: null };
+function abShow() {
+  $("ab").innerHTML = "A / B  <b></b>"; $("ab").querySelector("b").textContent = ab.cur;
+  $("abcopy").textContent = T(ab.cur === "A" ? "abcopy" : "abcopyb");
+}
+function abReset() { ab.cur = "A"; ab.A = snapshot(); ab.B = snapshot(); abShow(); }
+$("ab").addEventListener("click", () => {
+  if (!ab.A) return;
+  ab[ab.cur] = snapshot(); ab.cur = ab.cur === "A" ? "B" : "A"; applySnap(ab[ab.cur]); abShow();
+});
+$("abcopy").addEventListener("click", () => { if (!ab.A) return; ab[ab.cur === "A" ? "B" : "A"] = snapshot(); });
+$("ab").title = T("abtip");
+
+/* randomize: a fraction (the slider) of the way from the current sound to a random one, kept playable */
+function randomize(amt) {
+  const R = Math.random, f = amt / 100, p = S.patch.slice();
+  const jit = (cur, lo, hi) => { const v = f >= 0.95 ? lo + R() * (hi - lo) : cur + (R() * 2 - 1) * f * (hi - lo) * 0.6; return Math.round(Math.max(lo, Math.min(hi, v))); };
+  const pick = (cur, lo, hi) => (R() < f ? lo + Math.floor(R() * (hi - lo + 1)) : cur);
+  for (const b of [FG.R1, FG.R2, FG.R3]) p[b] = pick(p[b], 1, 4);
+  for (const b of [FG.W1, FG.W2, FG.W3]) p[b] = pick(p[b], 0, 5);
+  p[FG.F2] = jit(p[FG.F2], 44, 84); p[FG.F3] = jit(p[FG.F3], 44, 84);
+  p[FG.L1] = jit(p[FG.L1], 70, 127); p[FG.L2] = jit(p[FG.L2], 0, 127); p[FG.L3] = jit(p[FG.L3], 0, 127); p[FG.LN] = jit(p[FG.LN], 0, 60);
+  p[FG.KBD] = jit(p[FG.KBD], 0, 127);
+  let sw = p[FG.SW1];
+  const flip = (bit, on) => { if (R() < f) sw = on ? sw | bit : sw & ~bit; };
+  flip(FS.O2, R() < 0.8); flip(FS.O3, R() < 0.7); flip(FS.NZ, R() < 0.15); flip(FS.MOSC, R() < 0.2); flip(FS.MFLT, R() < 0.3);
+  p[FG.SW1] = sw | FS.O1;                                                  /* (always something to hear) */
+  const par = (id, lo, hi) => { const d = S.desc["0:" + id]; if (!d) return; const span = d.max - d.min; S.p[id] = jit(S.p[id], Math.round(d.min + lo * span), Math.round(d.min + hi * span)); queue("p" + id, setPar(id)); };
+  par(S.pe0, 0.25, 1); par(S.pe0 + 1, 0, 0.7); par(S.pe0 + 2, 0, 1);
+  par(S.pe0 + 3, 0, 0.5); par(S.pe0 + 4, 0.1, 1); par(S.pe0 + 5, 0, 1);
+  par(P.ATK, 0, 0.45); par(P.DEC, 0.1, 1); par(P.SUS, 0.35, 1);
+  S.patch = p;
+  if (S.canPatch) queue("patch", putPatch());
+  refreshAll();
+}
+$("amt").addEventListener("input", () => { $("amtv").textContent = $("amt").value + "%"; });
+$("rnd").addEventListener("click", () => randomize(+$("amt").value));
+
+/* ------------------------------------------------------------------------ library --- */
+function busy(text) { document.body.classList.toggle("busy", !!text); $("busy").hidden = !text; $("busy").textContent = text || ""; }
+async function withBusy(text, fn) {
+  busy(text); const keep = touch.until; touch.until = Date.now() + 3600e3;
+  try { return await fn(); } finally { touch.until = Date.now() + 600; busy(""); void keep; }
+}
+/* the PRESETS tab: the backup and restore of every preset, and FACTORY RESET (a preset back to its factory preset: the
+ * slots 000..199 for all of them, any one slot from the list) */
+async function buildLib() {
+  const panel = $("panel"); panel.textContent = "";
+  const mk = (tag, cls, text) => { const e = document.createElement(tag); if (cls) e.className = cls; if (text !== undefined) e.textContent = text; return e; };
+  const btn = (text, fn, cls) => { const b = mk("button", cls || "btn", text); b.addEventListener("click", fn); return b; };
+  const g1 = mk("section", "grp"), row = mk("div", "libname");
+  g1.append(mk("h2", "", T("libtitle")), row);
+  row.append(btn(T("bakexp"), backupAll), btn(T("bakimp"), () => $("file").click()));
+  const g2 = mk("section", "grp"); g2.append(mk("h2", "", "FACTORY RESET"));
+  const sel = mk("select"); sel.id = "resetsel"; sel.setAttribute("aria-label", T("resetone"));
+  FACTORY_NAMES.forEach((n, i) => { const o = mk("option", "", String(i).padStart(3, "0") + "  " + n); o.value = i; sel.append(o); });
+  sel.value = S.slot < S.names.length ? S.slot : 0;
+  const r1 = mk("div", "libname"), r2 = mk("div", "libname");
+  r1.append(btn(T("resetall"), resetAllFactory));
+  r2.append(sel, btn(T("resetone"), () => resetOne(+sel.value)));
+  g2.append(r1, mk("p", "", T("indiv")), r2);
+  panel.append(g1, g2);
+}
+const FACTORY_N = 200;                                 /* the factory presets: 000..199 */
+const FACTORY_NAMES = ["MINI LEAD", "MOOG BASS", "PLUCK ARP", "PAD SWELL", "SINE SOLO", "SPACE DRONE", "CS-80 BRASS", "LUSH STRINGS", "AURA ATMOS", "UFO", "EMERSON", "NUMAN", "HAMMER", "FIFTHS", "RAVE ARP", "ACID LEAD", "PULSE HERO", "TITAN", "FUZZ LEAD", "GROWL", "MOOG FLUTE", "G-FUNK", "MEGA LEAD", "BANKS", "OBOE", "SOLO VIOLIN", "DREAMER", "WHISTLE", "MELLOW PULSE", "SAX LEAD", "MINI BASS", "CHAMELEON", "SUB BASS", "WOBBLE BASS", "OCTAVE PUMP", "SEQ BASS", "REESE", "RUBBER", "FUZZ BASS", "WONDER BASS", "SOLINA", "WARM PAD", "JUNO PWM", "CHOIR", "SWEEP PAD", "ANGELS", "ECLIPSE", "PULSE PAD", "CELLOS", "AIR PAD", "MOOG BRASS", "JUMP BRASS", "TRUMPET", "FRENCH HORN", "BRASS STAB", "BRASS SWELL", "HORN RIFF", "TROMBONE", "FLUGEL", "FANFARE", "PLUCK SAW", "MARIMBA", "KALIMBA", "FUNK ARP", "NYLON", "STEELDRUM", "8-BIT ARP", "PIZZICATO", "POP PLUCK", "HARP", "CLAVINET", "PIPE ORGAN", "SYNTH PIANO", "HARPSICHORD", "VIBES", "WURLY", "TUBULAR", "MUSIC BOX", "ACCORDION", "FARFISA", "DARK DRONE", "STAR DUST", "ALIEN CHOIR", "GLASS HARP", "NORTHERN SKY", "PULSAR", "IRON DRONE", "GHOST SEQ", "HORROR", "SINGING BOWL", "JET SWEEP", "THUNDER", "WIND", "SIREN", "TELEPHONE", "POWER UP", "LASER ZAP", "HELICOPTER", "ROBOT", "CALM SEA", "SUNRISE", "NIGHT SWIM", "GLASS ARP", "I FEEL ARP", "VELVET EP", "TIN WHISTLE", "BRASS RISE", "STACCATO", "MONO SYNC", "SOUL KEYS", "OVERDRIVE", "MACHINE", "SAW WALL", "STRIKE", "BIG HOOK", "ANGRY BUZZ", "CRUNCH", "CONTROL", "SIREN LEAD", "MOSQUITO", "MELLOW MAN", "FLUTE SOFT", "HONEY LEAD", "MOONLIGHT", "SOFT CLAR", "VOICE OOH", "WARM SQR", "SILK PAD LD", "BELL LEAD", "DREAM FLUTE", "SUB SINE", "ROUND 808", "RUBBER SUB", "OCTAVE PLK", "WOBBLE", "STEP BASS", "REED BASS", "TUBE BASS", "DOUBLE SAW", "PLUCK BASS", "VELVET PAD", "AURORA", "MIST STR", "SWELL PAD", "OBOE PAD", "CHOIR SOFT", "HEAVEN", "GLOW PAD", "MIDNIGHT ST", "BREATHE", "BIG BRASS", "MUTE TRP", "SAX BRASS", "STAB 2", "HORN SECT", "SYNTH HORN", "POWER BRS", "MUTED HRN", "OCT BRASS", "BRASS DRONE", "HARP 2", "KOTO", "MARIMBA 2", "CLAV FUNK", "STEEL PLUCK", "ACOUSTIC", "TICK PLK", "BANJO", "PLUCK ARP 2", "CHIME BOX", "CLAV SOFT", "WURLI 2", "HARPSI 2", "DRAWBAR", "E.PIANO", "ELEC PIANO", "MELLOTRON", "MALLET KEY", "CHORUS EP", "HAMMOND", "DEEP SWELL 2", "GHOST CHOIR", "PULSE DRONE", "OCEAN", "STARFIELD", "MOTHER", "FOG BELLS", "MACHINE HUM", "VOID", "TIDAL", "RISER", "IMPACT", "RAYGUN", "STATIC", "CARPET", "SPACESHIP", "BEEP BOOP", "GLITCH FX", "TAPE STOP", "SUB DROP"];   /* the 200 factory names, in slot order (tools/fmini_bank.py; regenerate when the bank changes) */
+async function fmReset(k) {
+  const r = await req(CMD.FMINI_RESET, [k & 127, k >> 7], 8000);
+  if (r[2] !== 0) throw bad("resetfail");
+}
+async function refreshPresets() {
+  await readNames(); fillPreset(); await pull(true);
+  if (PAGES[S.page].lib) buildLib();
+}
+/* the device asks on its panel (YES: it does the reset itself); args: [0, slot lo, hi] one preset, [3] every factory preset */
+async function askDevice(args, text) {
+  let asked = false;
+  try {
+    await withBusy(T("waitdev"), async () => {
+      const r = await req(CMD.FMINI_RESTORE, args, 1500);
+      if (r[1] !== 0 || r[2] !== 1) throw bad("refused");
+      asked = true;
+      const t0 = Date.now();
+      for (;;) {                                           /* YES (2), or NO / a silent 60 s (3) */
+        await sleep(300);
+        const st = (await req(CMD.FMINI_RESTORE, [1], 1500))[2];
+        if (st === 2) break;
+        if (st !== 1 || Date.now() - t0 > 90000) throw bad("refused");
+      }
+      busy(text);
+    });
+  } catch (e) {
+    if (asked) { try { await req(CMD.FMINI_RESTORE, [2], 1500); } catch (_) { /* (the device ends the question on its own) */ } }
+    throw e;
+  }
+  await req(CMD.FMINI_RESTORE, [2], 1500);
+}
+async function resetOne(k) {
+  if (!S.canPatch) return;
+  try {
+    await askDevice([0, k & 127, k >> 7], T("busyreset"));
+    await refreshPresets(); msg(T("resetdone"));
+  } catch (e) { msg(T(e.code || "lost"), true); }
+}
+async function resetAllFactory() {
+  if (!S.canPatch) return;
+  try {
+    await askDevice([3], T("busyreset"));
+    await refreshPresets(); msg(T("resetdone"));
+  } catch (e) { msg(T(e.code || "lost"), true); }
+}
+
+/* BACKUP (protocol 4): every preset of the device, as its record (hex), in one .bkp file (JSON). RESTORE: the device asks
+ * first (its own question, NO by default); only on YES are the 200 records written */
+const hexOf = (b) => Array.from(b, (x) => x.toString(16).padStart(2, "0")).join("");
+const bytesOf = (h) => Uint8Array.from(h.match(/../g) || [], (x) => parseInt(x, 16));
+async function fmRec(k) {
+  const r = await req(CMD.FMINI_REC, [k & 127, k >> 7], 3000);
+  if (r[2] !== 0) throw bad("recfail");
+  const n = r[3] | r[4] << 7, out = new Uint8Array(n);
+  for (let i = 0; i < n; i++) out[i] = r[5 + 2 * i] | (r[6 + 2 * i] << 4);
+  return out;
+}
+async function backupAll() {
+  if (!S.canPatch) return;
+  try {
+    const slots = await withBusy(T("busybak"), async () => {
+      const out = [];
+      for (let k = 0; k < 200; k++) {
+        out.push({ slot: k, rec: hexOf(await fmRec(k)) });
+        if (k % 20 === 19) busy(T("busybak") + " " + (k + 1) + "/200");
+      }
+      return out;
+    });
+    download({ fmini1bkp: 1, protocol: 4, slots }, "fmini-1-backup.bkp");
+    msg(T("bakdone"));
+  } catch (e) { msg(T(e.code || "lost"), true); }
+}
+async function restoreAll(o) {
+  const ok = Array.isArray(o.slots) && o.slots.length === 200 &&
+    o.slots.every((x, i) => x && x.slot === i && typeof x.rec === "string" && /^([0-9a-f]{2}){1,128}$/.test(x.rec));
+  if (!ok) throw bad("badbkp");
+  const recs = o.slots.map((x) => bytesOf(x.rec));
+  let asked = false;
+  try {
+    await withBusy(T("waitdev"), async () => {
+      const r = await req(CMD.FMINI_RESTORE, [0], 1500);
+      if (r[1] !== 0 || r[2] !== 1) throw bad("refused");
+      asked = true;
+      const t0 = Date.now();
+      for (;;) {                                           /* the device answers: YES (2), or NO / a silent 60 s (3) */
+        await sleep(300);
+        const st = (await req(CMD.FMINI_RESTORE, [1], 1500))[2];
+        if (st === 2) break;
+        if (st !== 1 || Date.now() - t0 > 90000) throw bad("refused");
+      }
+      busy(T("busyrest"));
+      for (let k = 0; k < 200; k++) {
+        const rec = recs[k], a = [k & 127, k >> 7, rec.length & 127, rec.length >> 7];
+        for (const b of rec) a.push(b & 15, b >> 4);
+        const w = await req(CMD.FMINI_RPUT, a, 8000);
+        if (w[2] !== 0) throw bad("restfail");
+        if (k % 20 === 19) busy(T("busyrest") + " " + (k + 1) + "/200");
+      }
+    });
+  } catch (e) {
+    if (asked) { try { await req(CMD.FMINI_RESTORE, [2], 1500); } catch (_) { /* (the device ends the question on its own) */ } }
+    throw e;
+  }
+  await req(CMD.FMINI_RESTORE, [2], 1500);
+  await readNames(); fillPreset(); await pull(true);
+  if (PAGES[S.page].lib) buildLib();
+  msg(T("restdone"));
+}
+for (const el of document.querySelectorAll("[data-t]")) el.textContent = T(el.dataset.t);
+$("connect").textContent = T("connect"); setStatus(false, T("disc")); $("rnd").textContent = T("rnd"); abShow();
+tabs(); build();
+window.__fmini = { S, req, connect, commit, PAGES, pull, ab };   /* (the tests drive the page through this) */
+</script>
+</body>
+</html>
